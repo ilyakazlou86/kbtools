@@ -1,6 +1,7 @@
 package by.krasnoby.kbtools.telegram;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.longpolling.BotSession;
 import org.telegram.telegrambots.longpolling.interfaces.LongPollingUpdateConsumer;
@@ -17,11 +18,13 @@ import org.telegram.telegrambots.meta.generics.TelegramClient;
 public class TelegramBot implements SpringLongPollingBot, LongPollingSingleThreadUpdateConsumer {
 
     private final TelegramClient telegramClient;
-    private final BotTokenHolder botConfig;
+    private final String botToken;
+    private final UserService userService;
 
-    public TelegramBot(TelegramClient telegramClient, BotTokenHolder botConfig) {
+    public TelegramBot(TelegramClient telegramClient, @Value("${bot.token}") String botToken, UserService userService) {
         this.telegramClient = telegramClient;
-        this.botConfig = botConfig;
+        this.botToken = botToken;
+        this.userService = userService;
     }
 
     @Override
@@ -29,21 +32,37 @@ public class TelegramBot implements SpringLongPollingBot, LongPollingSingleThrea
         // We check if the update has a message and the message has text
         if (update.hasMessage() && update.getMessage().hasText()) {
             // Set variables
-            String messageText = update.getMessage().getText();
-            long chatId = update.getMessage().getChatId();
+            var chatId = update.getMessage().getChatId();
+            var userName = update.getMessage().getFrom().getUserName();
+            var messageText = update.getMessage().getText();
 
-            SendMessage message = SendMessage.builder().chatId(chatId).text(messageText).build();
-            try {
-                telegramClient.execute(message); // Sending our message object to user
-            } catch (TelegramApiException e) {
-                log.error("Error occurred while processing an update", e);
+            switch (messageText) {
+                case "/start" -> doStart(chatId, userName);
             }
+        }
+    }
+
+    private void sendMessage(Long chatId, String messageText) {
+        try {
+            SendMessage message = SendMessage.builder().chatId(chatId).text(messageText).build();
+            telegramClient.execute(message); // Sending our message object to user
+        } catch (TelegramApiException e) {
+            log.error("Error occurred while sending a message to {}: {}", chatId, e.getMessage());
+        }
+    }
+
+    private void doStart(Long chatId, String userName) {
+        TelegramUser newUser = TelegramUser.builder().chatId(chatId).userName(userName).build();
+        if (userService.registerNewUser(newUser)) {
+            sendMessage(chatId, "You're successfully registered!");
+        } else {
+            sendMessage(chatId, "You're already registered!");
         }
     }
 
     @Override
     public String getBotToken() {
-        return botConfig.getBotToken();
+        return botToken;
     }
 
     @Override
